@@ -1,0 +1,17 @@
+Guide to reproduce experiments:
+
+This is with indian dataset.
+
+0) Train 1 model of each kind for p_indian=0.5, idx=0, using train.py in '0_train_nns'
+   and rename them as <model_name>_<n_epochs>_<p_indian>_<idx>_<test_acc>.pt
+
+1) Compress each model with compression.py for different bond dimensions.
+   Compress with each configuration <n_samples>(50) and <n_models>(50).
+
+1-b) Compress each model with compression.py for different bond dimensions.
+   Compress with each configuration <n_samples>(100) and <n_models>(5).
+
+2) Compress and retrain with Layer-Wise tensorization with compression_lw.py (10 epochs)
+
+3) Retrain the best compressed models from step 1), for each type of model,
+   for each bond dimension

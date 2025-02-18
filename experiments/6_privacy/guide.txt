@@ -1,0 +1,5 @@
+Guide to reproduce experiments:
+
+0) Tensorize all models with d=2, D=5, r=1, n=50
+
+1) Re-train tensorized models for 10 epochs on tensorization dataset
