@@ -23,8 +23,8 @@ cwd = os.getcwd()
 eps = 1e-10
 
 
-# Tensorize
-# =========
+# Train NN models
+# ===============
 
 class FFFC(nn.Module):
     
@@ -137,6 +137,9 @@ def train_model(n_features):
     torch.save(model.state_dict(),
                os.path.join(cores_dir, f'fffc_mnist_{im_size}.pt'))
 
+
+# Tensorize
+# =========
 
 def tt_rss_tensorization(n_features, phys_dim, bond_dim,
                          samples_size, sketch_size, verbose=False):

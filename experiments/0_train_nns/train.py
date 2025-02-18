@@ -4,7 +4,7 @@ Script used to:
   2) Do hyperparameter tuning (TUNE) for the models
   3) TRAIN the models to be attacked
   
-It should be called from the parent folder
+It should be called from the parent folder.
 """
 
 import os
@@ -423,7 +423,8 @@ def main_tune(model_class, config, n_epochs, n_samples, p_english,
             if tuner is None:
                 if os.path.exists(results_dir):
                     shutil.rmtree(results_dir, ignore_errors=True)
-                os.makedirs(os.path.join(results_dir, 'tuner_checkpoint'))
+                os.makedirs(os.path.join(results_dir, 'tuner_checkpoint'),
+                            exist_ok=True)
                 
                 tune_config = tune.TuneConfig(metric='val_acc',
                                               mode='max',

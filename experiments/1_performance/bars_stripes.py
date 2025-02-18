@@ -1,18 +1,10 @@
 import os
 import sys
 import getopt
-import json
-from importlib import util
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, TensorDataset
-
-import torchvision.datasets as datasets
-import torchvision.transforms as transforms
-
-import torchvision
-import torchaudio
+from torch.utils.data import DataLoader, TensorDataset
 
 import tensorkrowch as tk
 from tensorkrowch.decompositions import tt_rss
@@ -23,8 +15,8 @@ cwd = os.getcwd()
 eps = 1e-10
 
 
-# Tensorize
-# =========
+# Train NN models
+# ===============
 
 class FFFC(nn.Module):
     
@@ -161,6 +153,9 @@ def train_model(n_features):
     torch.save(model.state_dict(),
                os.path.join(cores_dir, f'fffc_bars_stripes_{im_size}.pt'))
 
+
+# Tensorize
+# =========
 
 def tt_rss_tensorization(n_features, phys_dim, bond_dim,
                          samples_size, sketch_size, verbose=False):
