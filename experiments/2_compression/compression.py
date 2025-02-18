@@ -1,7 +1,3 @@
-"""
-Tensorization of NN models for different configurations of hyperparameters
-"""
-
 import os
 import sys
 import getopt
@@ -10,7 +6,7 @@ from importlib import util
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import Dataset, DataLoader
 import torchvision
 import torchaudio
 
@@ -20,9 +16,9 @@ from tensorkrowch.decompositions import tt_rss
 torch.set_num_threads(1)
 
 cwd = os.getcwd()
-p_indian_list = [0.005, 0.01, 0.05,
-                 0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9,
-                 0.95, 0.99, 0.995]
+p_english_list = [0.005, 0.01, 0.05,
+                  0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                  0.95, 0.99, 0.995]
 out_rate = 1000
 
 
@@ -45,10 +41,10 @@ class CustomCommonVoice(Dataset):
 
     Parameters
     ----------
-    p_indian : float (p_indian_list)
-        Proportion of audios of people with indian accent in the dataset.
+    p_english : float (p_english_list)
+        Proportion of audios of people with english accent in the dataset.
     idx : int [0, 9]
-        Index of the annotations to be used. For each ``p_indian`` there are 10
+        Index of the annotations to be used. For each ``p_english`` there are 10
         datasets.
     set : str
         Indicates which dataset is to be loaded.
@@ -59,21 +55,21 @@ class CustomCommonVoice(Dataset):
     """
     
     def __init__(self,
-                 p_indian,
+                 p_english,
                  idx,
                  set="train_df.tsv",
                  transform=None):
         
-        global p_indian_list
-        if (p_indian not in p_indian_list) or ((idx < 0) or (idx > 9)):
+        global p_english_list
+        if (p_english not in p_english_list) or ((idx < 0) or (idx > 9)):
             raise ValueError(
-                f'`p_indian` can only take values within {p_indian_list}, '
+                f'`p_english` can only take values within {p_english_list}, '
                 f'and `idx` should be between 0 and 9')
         
         global cwd
         self.dataset = torchaudio.datasets.COMMONVOICE(
             root=os.path.join(cwd, 'CommonVoice'),
-            tsv=os.path.join('datasets', str(p_indian), str(idx), set))
+            tsv=os.path.join('datasets', str(p_english), str(idx), set))
         self.transform = transform
 
     def __len__(self):
@@ -124,20 +120,20 @@ def none_collate(batch):
     return torch.utils.data.dataloader.default_collate(batch)
 
 
-def load_data(p_indian, idx, batch_size):
+def load_data(p_english, idx, batch_size):
     """Loads dataset performing the required transformations for train or test."""
     
     # Load datasets
     global transform
-    train_dataset = CustomCommonVoice(p_indian,
+    train_dataset = CustomCommonVoice(p_english,
                                       idx,
                                       set="train_df.tsv",
                                       transform=transform)
-    val_dataset = CustomCommonVoice(p_indian,
+    val_dataset = CustomCommonVoice(p_english,
                                     idx,
                                     set="val_df.tsv",
                                     transform=transform)
-    test_dataset = CustomCommonVoice(p_indian,
+    test_dataset = CustomCommonVoice(p_english,
                                      idx,
                                      set="test_df.tsv",
                                      transform=transform)
@@ -159,16 +155,16 @@ def load_data(p_indian, idx, batch_size):
     return train_loader, val_loader, test_loader
 
 
-def load_sketch_samples(p_indian, idx, batch_size):
+def load_sketch_samples(p_english, idx, batch_size):
     """Loads sketch samples to tensorize models."""
     
     # Load datasets
     global transform
-    test_tensorize_dataset = CustomCommonVoice(p_indian,
+    test_tensorize_dataset = CustomCommonVoice(p_english,
                                                idx,
                                                set="test_df_tensorize.tsv",
                                                transform=transform)
-    test_unused_dataset = CustomCommonVoice(p_indian,
+    test_unused_dataset = CustomCommonVoice(p_english,
                                             idx,
                                             set="test_df_unused.tsv",
                                             transform=transform)
@@ -303,9 +299,9 @@ def tensorize(model_class,
               embedding_fn='poly',
               embed_dim=2,
               bond_dim=5,
-              domain_multiplier=3,
+              domain_multiplier=1,
               n_samples=100,
-              n_models=10):
+              n_models=5):
     """Tensorizes models with given parameters."""
     device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
     
@@ -317,7 +313,7 @@ def tensorize(model_class,
     
     softmax = nn.Softmax(dim=1)
         
-    models_dir = os.path.join(cwd, 'results', '3_compression')
+    models_dir = os.path.join(cwd, 'results', '2_compression')
     cores_dir = os.path.join(models_dir,
                              f'cores_{model_class.name}',
                              f'{embed_dim}_{bond_dim}_{domain_multiplier}_{n_samples}')
@@ -344,8 +340,6 @@ def tensorize(model_class,
             aux = softmax(model(samples))
             aux = torch.where(aux > 0.5, 1., 0.)
             return aux
-                
-            # return softmax(model(samples)).sqrt()
         
         # Load data
         batch_size_loader = 500
@@ -413,22 +407,6 @@ def tensorize(model_class,
         )
         
         # Check accuracy of TN
-        # Train
-        sketch_dataset = TensorDataset(sketch_samples[:n_samples],
-                                       sketch_labels[:n_samples])
-        sketch_loader = DataLoader(sketch_dataset,
-                                   batch_size=n_samples,
-                                   collate_fn=none_collate,
-                                   shuffle=False)
-        
-        sketch_acc = test_tn(device=device,
-                             model=tn_model,
-                             embedding=embedding,
-                             test_loader=sketch_loader,
-                             #n_batches=5
-                             )
-        
-        # Test
         test_acc = test_tn(device=device,
                            model=tn_model,
                            embedding=embedding,
@@ -456,7 +434,6 @@ def tensorize(model_class,
         
         # Print logs
         print(f'**{model_class.name}** (p: 0.5, i: 0, s: {s}) => '
-              f'Sketch Acc.: {sketch_acc:.4f}, '
               f'Test Acc.: {test_acc:.4f}, '
               f'MI: {mean=:.4f} / {std=:.4f} / {max=:.4f} / '
               f'{max_bond_dim=:.4}'
@@ -466,7 +443,7 @@ def tensorize(model_class,
             cores,
             os.path.join(
                 cores_dir,
-                f'{s}_{sketch_acc:.4f}_{test_acc:.4f}_{mean:.4f}_{std:.4f}_{max:.4f}.pt'
+                f'{s}_{test_acc:.4f}_{mean:.4f}_{std:.4f}_{max:.4f}.pt'
             )
         )
 

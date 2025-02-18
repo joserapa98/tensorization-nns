@@ -1,16 +1,10 @@
 import os
 import sys
 import getopt
-import json
-from importlib import util
 
 from math import log, sqrt
 
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-import torchvision
-import torchaudio
 
 import tensorkrowch as tk
 from tensorkrowch.decompositions import tt_rss

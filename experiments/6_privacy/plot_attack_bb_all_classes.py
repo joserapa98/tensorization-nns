@@ -3,20 +3,19 @@ import sys
 import getopt
 import json
 from importlib import util
-import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import Dataset, DataLoader
 import torchvision
 import torchaudio
 
 import tensorkrowch as tk
 
-torch.set_num_threads(1)
 
+torch.set_num_threads(1)
 cwd = os.getcwd()
-p_indian_list = [0.005, 0.01, 0.05,
+p_english_list = [0.005, 0.01, 0.05,
                  0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
                  0.95, 0.99, 0.995]
 out_rate = 1000
@@ -40,10 +39,10 @@ class CustomCommonVoice(Dataset):
 
     Parameters
     ----------
-    p_indian : float (p_indian_list)
-        Proportion of audios of people with indian accent in the dataset.
+    p_english : float (p_english_list)
+        Proportion of audios of people with english accent in the dataset.
     idx : int [0, 9]
-        Index of the annotations to be used. For each ``p_indian`` there are 10
+        Index of the annotations to be used. For each ``p_english`` there are 10
         datasets.
     set : str
         Indicates which dataset is to be loaded.
@@ -55,7 +54,7 @@ class CustomCommonVoice(Dataset):
     
     def __init__(self,
                 #  sex,
-                #  indian,
+                #  english,
                  transform=None):
         
         global cwd
@@ -63,9 +62,6 @@ class CustomCommonVoice(Dataset):
             root=os.path.join(cwd, 'CommonVoice'),
             tsv=os.path.join('datasets', 'full_df_test_copy.tsv'))
         self.transform = transform
-        
-        # self.sex = sex
-        # self.canadian = indian
 
     def __len__(self):
         return len(self.dataset)
@@ -74,11 +70,6 @@ class CustomCommonVoice(Dataset):
         x, y, z = self.dataset[index]
         if self.transform:
             x = self.transform((x, y))
-            
-        # if (int(z['sex']) != self.sex) or (int(z['canadian']) != self.canadian):
-        #     return None, None
-        
-        # return x, int(z['sex'])
         return x, (int(z['sex']), int(z['canadian']))
     
 
@@ -207,7 +198,7 @@ def create_dataset():
             break
         
     if not all(all_ready):
-        raise ValueError('Not enouugh samples of all types')
+        raise ValueError('Not enough samples of all types')
         
     for i in range(4):
         all_samples[i] = torch.cat(all_samples[i], dim=0)
@@ -251,7 +242,6 @@ def accs_by_class(model_type='nn',
     
     if model_type == 'nn':
         models_dir = os.path.join(cwd, 'results', '0_train_nns', 'fffc_tiny')
-        # models_dir = os.path.join(cwd, 'results', '0_retrain_nns', 'fffc_tiny')
         results_dir = os.path.join(all_results_dir, 'nn')
         os.makedirs(results_dir, exist_ok=True)
     
@@ -286,12 +276,12 @@ def accs_by_class(model_type='nn',
     samples, labels = samples.to(device), labels.to(device)
     combs = [(0, 0), (0, 1), (1, 0), (1, 1)]
     
-    for p_indian in p_indian_list:
-        print(f'{p_indian=}')
+    for p_english in p_english_list:
+        print(f'{p_english=}')
         p_accs = {}
         for idx in range(10):
             print(f'\t{idx=}')
-            aux_models_dir = os.path.join(models_dir, str(p_indian), str(idx))
+            aux_models_dir = os.path.join(models_dir, str(p_english), str(idx))
             if os.path.exists(aux_models_dir):
                 n_models = len(os.listdir(aux_models_dir))
                 for s in range(n_models):
@@ -355,7 +345,7 @@ def accs_by_class(model_type='nn',
             accs = (accs.mean(), accs.std())
             print(f'\t\t\t{accs}')
             
-            aux_dir = os.path.join(results_dir, str(p_indian))
+            aux_dir = os.path.join(results_dir, str(p_english))
             os.makedirs(aux_dir, exist_ok=True)
             
             torch.save(accs, os.path.join(aux_dir, f'{l}_{p}.pt'))
@@ -371,7 +361,7 @@ if __name__ == '__main__':
     if len(argv) == 1:
         print('No argumets were passed')
         print('\t<sex>\n'
-              '\t<indian>')
+              '\t<english>')
         sys.exit()
       
     # Read options and arguments

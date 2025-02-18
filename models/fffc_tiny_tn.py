@@ -42,7 +42,7 @@ config_dir = os.path.join(cwd, 'results', '0_train_nns', model_class.name, '0.5'
 with open(os.path.join(config_dir, 'tuned_config.json'), 'r') as f:
     config = json.load(f)
         
-models_dir = os.path.join(cwd, 'results', '3_compression')
+models_dir = os.path.join(cwd, 'results', '2_compression')
 
 # Load state_dict
 state_dict_dir = list(filter(lambda f: f.startswith(model_name) and f.endswith('.pt'),

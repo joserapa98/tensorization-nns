@@ -6,16 +6,16 @@ from importlib import util
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import Dataset, DataLoader
 import torchvision
 import torchaudio
 
 import tensorkrowch as tk
 
-torch.set_num_threads(1)
 
+torch.set_num_threads(1)
 cwd = os.getcwd()
-p_indian_list = [0.005, 0.01, 0.05,
+p_english_list = [0.005, 0.01, 0.05,
                  0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
                  0.95, 0.99, 0.995]
 out_rate = 1000
@@ -40,10 +40,10 @@ class CustomCommonVoice(Dataset):
 
     Parameters
     ----------
-    p_indian : float (p_indian_list)
-        Proportion of audios of people with indian accent in the dataset.
+    p_english : float (p_english_list)
+        Proportion of audios of people with english accent in the dataset.
     idx : int [0, 9]
-        Index of the annotations to be used. For each ``p_indian`` there are 10
+        Index of the annotations to be used. For each ``p_english`` there are 10
         datasets.
     set : str
         Indicates which dataset is to be loaded.
@@ -266,7 +266,6 @@ def save_models_data(model_type='nn',
     
     if model_type == 'nn':
         models_dir = os.path.join(cwd, 'results', '0_train_nns', 'fffc_tiny')
-        # models_dir = os.path.join(cwd, 'results', '0_retrain_nns', 'fffc_tiny')
         results_dir = os.path.join(all_results_dir, 'nn')
         os.makedirs(results_dir, exist_ok=True)
     
@@ -299,7 +298,7 @@ def save_models_data(model_type='nn',
     
     samples = torch.load(samples_dir, weights_only=False).to(device)
     
-    for p in p_indian_list:
+    for p in p_english_list:
         print(f'{p=}')
         for idx in range(10):
             print(f'\t{idx=}')

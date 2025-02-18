@@ -1,7 +1,3 @@
-"""
-Tensorization of NN models for different configurations of hyperparameters
-"""
-
 import os
 import sys
 import getopt

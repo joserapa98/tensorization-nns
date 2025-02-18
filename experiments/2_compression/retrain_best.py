@@ -1,27 +1,26 @@
 """
-Layer-wise tensorization of NN models with different bond dimensions,
-and posterior training of these tensorized models
+Re-train tensorized MPS models
 """
 
 import os
 import sys
 import getopt
-import json
-import copy
 from importlib import util
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 import torchvision
 import torchaudio
+
+import tensorkrowch as tk
 
 torch.set_num_threads(1)
 
 cwd = os.getcwd()
-p_indian_list = [0.005, 0.01, 0.05,
-                 0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9,
-                 0.95, 0.99, 0.995]
+p_english_list = [0.005, 0.01, 0.05,
+                  0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                  0.95, 0.99, 0.995]
 out_rate = 1000
 
 
@@ -44,10 +43,10 @@ class CustomCommonVoice(Dataset):
 
     Parameters
     ----------
-    p_indian : float (p_indian_list)
-        Proportion of audios of people with indian accent in the dataset.
+    p_english : float (p_english_list)
+        Proportion of audios of people with english accent in the dataset.
     idx : int [0, 9]
-        Index of the annotations to be used. For each ``p_indian`` there are 10
+        Index of the annotations to be used. For each ``p_english`` there are 10
         datasets.
     set : str
         Indicates which dataset is to be loaded.
@@ -58,21 +57,21 @@ class CustomCommonVoice(Dataset):
     """
     
     def __init__(self,
-                 p_indian,
+                 p_english,
                  idx,
                  set="train_df.tsv",
                  transform=None):
         
-        global p_indian_list
-        if (p_indian not in p_indian_list) or ((idx < 0) or (idx > 9)):
+        global p_english_list
+        if (p_english not in p_english_list) or ((idx < 0) or (idx > 9)):
             raise ValueError(
-                f'`p_indian` can only take values within {p_indian_list}, '
+                f'`p_english` can only take values within {p_english_list}, '
                 f'and `idx` should be between 0 and 9')
         
         global cwd
         self.dataset = torchaudio.datasets.COMMONVOICE(
             root=os.path.join(cwd, 'CommonVoice'),
-            tsv=os.path.join('datasets', str(p_indian), str(idx), set))
+            tsv=os.path.join('datasets', str(p_english), str(idx), set))
         self.transform = transform
 
     def __len__(self):
@@ -123,20 +122,20 @@ def none_collate(batch):
     return torch.utils.data.dataloader.default_collate(batch)
 
 
-def load_data(p_indian, idx, batch_size):
+def load_data(p_english, idx, batch_size):
     """Loads dataset performing the required transformations for train or test."""
     
     # Load datasets
     global transform
-    train_dataset = CustomCommonVoice(p_indian,
+    train_dataset = CustomCommonVoice(p_english,
                                       idx,
                                       set="train_df.tsv",
                                       transform=transform)
-    val_dataset = CustomCommonVoice(p_indian,
+    val_dataset = CustomCommonVoice(p_english,
                                     idx,
                                     set="val_df.tsv",
                                     transform=transform)
-    test_dataset = CustomCommonVoice(p_indian,
+    test_dataset = CustomCommonVoice(p_english,
                                      idx,
                                      set="test_df.tsv",
                                      transform=transform)
@@ -158,16 +157,16 @@ def load_data(p_indian, idx, batch_size):
     return train_loader, val_loader, test_loader
 
 
-def load_sketch_samples(p_indian, idx, batch_size):
+def load_sketch_samples(p_english, idx, batch_size):
     """Loads sketch samples to tensorize models."""
     
     # Load datasets
     global transform
-    test_tensorize_dataset = CustomCommonVoice(p_indian,
+    test_tensorize_dataset = CustomCommonVoice(p_english,
                                                idx,
                                                set="test_df_tensorize.tsv",
                                                transform=transform)
-    test_unused_dataset = CustomCommonVoice(p_indian,
+    test_unused_dataset = CustomCommonVoice(p_english,
                                             idx,
                                             set="test_df_unused.tsv",
                                             transform=transform)
@@ -185,34 +184,38 @@ def load_sketch_samples(p_indian, idx, batch_size):
     return test_tensorize_loader, test_unused_loader
 
 
-###############################################################################
-###############################################################################
-
-############
-# Training #
-############
-# MARK: Training
-
-def training_epoch(device, model, criterion, optimizer, train_loader,
-                   logs, verbose=False):
+def training_epoch_tn(device, model, embedding, criterion, optimizer,
+                      train_loader, logs, n_batches=None):
+    if n_batches is not None:
+        n_batches = min(n_batches, len(train_loader))
+    else:
+        n_batches = len(train_loader)
+    i = 0
+    
     running_loss = 0
     running_acc = 0
-    print_each = len(train_loader) // 10
-    
+
     model.train()
-    for batch_idx, (data, labels) in enumerate(train_loader):
+    for data, labels in train_loader:
         data = data.to(device)
         labels = labels.to(device)
         
         # Forward
-        scores = model(data)
+        scores = model(embedding(data),
+                       inline_input=False,
+                       inline_mats=False)
+        scores = scores.pow(2)
+        scores = scores / scores.norm(dim=1, keepdim=True)
+        scores = torch.where(scores == 0, 1e-10, scores)
+        scores = scores.log()
+        
         loss = criterion(scores, labels)
         
         with torch.no_grad():
             _, preds = torch.max(scores, 1)
             accuracy = (preds == labels).float().mean().item()
-            running_loss += loss.item()
             running_acc += accuracy
+            running_loss += loss.item()
         
         # Backward
         optimizer.zero_grad()
@@ -221,19 +224,20 @@ def training_epoch(device, model, criterion, optimizer, train_loader,
         # Gradient descent
         optimizer.step()
         
-        if verbose and ((batch_idx + 1) % print_each == 0):
-            print(f'\tBatch: {batch_idx + 1}/{len(train_loader)}, '
-                  f'Last Train Loss: {loss.item():.3f}, '
-                  f'Last Train Acc: {accuracy:.3f}')
+        i += 1
+        if i >= n_batches:
+            break
     
-    logs['train_losses'].append(running_loss / len(train_loader))
-    logs['train_accs'].append(running_acc / len(train_loader))
+    logs['train_losses'].append(running_loss / n_batches)
+    logs['train_accs'].append(running_acc / n_batches)
     
-    return model, optimizer, logs
+    return model, logs
 
 
-def test(device, model, test_loader, n_batches=None):
+def test_tn(device, model, embedding, criterion, test_loader,
+            logs, n_batches=None):
     """Computes accuracy on test set."""
+    running_loss = 0
     running_acc = 0
     
     if n_batches is not None:
@@ -248,17 +252,29 @@ def test(device, model, test_loader, n_batches=None):
             data = data.to(device)
             labels = labels.to(device)
             
-            scores = model(data)
-            _, preds = torch.max(scores, 1)
+            scores = model(embedding(data),
+                           inline_input=False,
+                           inline_mats=False)
+            scores = scores.pow(2)
+            scores = scores / scores.norm(dim=1, keepdim=True)
+            scores = torch.where(scores == 0, 1e-10, scores)
+            scores = scores.log()
             
+            loss = criterion(scores, labels)
+            
+            _, preds = torch.max(scores, 1)
             accuracy = (preds == labels).float().mean().item()
             running_acc += accuracy
+            running_loss += loss.item()
             
             i += 1
             if i >= n_batches:
                 break
     
-    return running_acc / n_batches
+    logs['val_losses'].append(running_loss / n_batches)
+    logs['val_accs'].append(running_acc / n_batches)
+    
+    return logs
 
 
 ###############################################################################
@@ -276,45 +292,56 @@ def n_params(model):
     return n
 
 
-def test_and_retrain(model_class, bond_dim=2, n_epochs=5):
-    """Tensorizes models with given parameters."""
+def retrain_tn(model_class, bond_dim, n_epochs):
+    """Retrains best MPS models"""
+    global p_english_list
+    
     device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Check tuned config of balanced model
-    config_dir = os.path.join(cwd, 'results', '0_train_nns', 'fffc_tiny', '0.5')
-    with open(os.path.join(config_dir, 'tuned_config.json'), 'r') as f:
-        config = json.load(f)
-        
-    models_dir = os.path.join(cwd, 'results', '3_compression')
-    tn_models_dir = os.path.join(models_dir, f'{model_class.name}')
-    os.makedirs(tn_models_dir, exist_ok=True)
+    cores_dir = os.path.join(cwd, 'results', '2_compression',
+                             f'cores_{model_class.name}',
+                             f'2_{bond_dim}_1_100')
+    all_files = os.listdir(cores_dir)
+    all_accs = [float(f.split('_')[1])for f in all_files]
     
-    # Initialize model with balanced config
-    model = model_class(bond_dim=bond_dim)
-    model.to(device)
+    aux_cores_dir = list(
+        filter(lambda f: float(f.split('_')[1]) == max(all_accs),
+               all_files))[0]
     
+    cores = torch.load(os.path.join(cores_dir, aux_cores_dir),
+                       weights_only=False)
+    prev_test_acc = float(aux_cores_dir.split('_')[1])
+    
+    recores_dir = os.path.join(cwd, 'results', '2_compression',
+                               f'recores_{model_class.name}')
+    os.makedirs(recores_dir, exist_ok=True)
+                
     # Load data
-    batch_size = 32
+    batch_size = 64
     train_loader, val_loader, test_loader = load_data(0.5, 0, batch_size)
     tensorize_loader, unused_loader = load_sketch_samples(0.5, 0, batch_size)
-        
-    # Check accuracy of TN
-    prev_test_acc = test(device=device,
-                         model=model,
-                         test_loader=unused_loader)
-    n = n_params(model)
     
-    # Print logs
-    print(f'**{model_class.name}** (p: 0.5, i: 0) => '
-          f'Test Acc.: {prev_test_acc:.4f}, No. Params.: {n}')
+    n_features = out_rate // 2 + 1
+    embed_dim = 2
     
-    # Re-train
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=1e-3,
-        weight_decay=1e-6,
-        )
+    def embedding(x):
+        x = tk.embeddings.poly(x, degree=embed_dim - 1)
+        return x
+    
+    # MPS model
+    tn_model = tk.models.MPSLayer(tensors=cores)
+    tn_model.to(device)
+    
+    tn_model.trace(
+        torch.zeros(1, n_features - 1, embed_dim).to(device),
+        inline_input=False,
+        inline_mats=False
+    )
+    
+    criterion = nn.NLLLoss()
+    optimizer = torch.optim.Adam(tn_model.parameters(),
+                                 lr=1e-5,
+                                 weight_decay=1e-8)
     
     logs = {'train_losses': [],
             'val_losses': [],
@@ -322,57 +349,102 @@ def test_and_retrain(model_class, bond_dim=2, n_epochs=5):
             'val_accs': []}
     best_val_acc = -1.
     
+    print(f'**{model_class.name}** (p: {0.5}, i: {0}, D: {bond_dim}) => '
+          f'Prev Test Acc.: {prev_test_acc:.4f}')
+    
     for epoch in range(n_epochs):
-        model, optimizer, logs = training_epoch(
+        tn_model, logs = training_epoch_tn(
             device=device,
-            model=model,
+            model=tn_model,
+            embedding=embedding,
             criterion=criterion,
             optimizer=optimizer,
             train_loader=train_loader, #tensorize_loader,
-            logs=logs)
-    
-        val_acc = test(device=device,
-                       model=model,
-                       test_loader=val_loader,
-                       n_batches=5)
-
-        print(f'**{model_class.name}** (p: 0.5, i: 0) => '
+            logs=logs,
+            # n_batches=10,
+            )
+        
+        # Validate
+        logs = test_tn(device=device,
+                       model=tn_model,
+                       embedding=embedding,
+                       criterion=criterion,
+                       test_loader=val_loader, #unused_loader,
+                       logs=logs,
+                       n_batches=5,
+                       )
+        
+        print(f'**{model_class.name}** (p: {0.5}, i: {0}, D: {bond_dim}) => '
               f'Epoch: {epoch + 1}/{n_epochs}, '
               f'Train Loss: {logs["train_losses"][-1]:.3f}, '
+              f'Val Loss: {logs["val_losses"][-1]:.3f}, '
               f'Train Acc: {logs["train_accs"][-1]:.3f}, '
-              f'Val Acc: {val_acc:.3f}')
-
-        # Keep track of best model
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            best_model_state_dict = copy.deepcopy(model.state_dict())
+              f'Val Acc: {logs["val_accs"][-1]:.3f}')
         
-    model.load_state_dict(best_model_state_dict)
-    test_acc = test(device=device,
-                    model=model,
-                    test_loader=unused_loader)
+        if logs['val_accs'][-1] > best_val_acc:
+            best_val_acc = logs['val_accs'][-1]
+            best_cores = [t.detach().clone()
+                          for t in tn_model.tensors]
     
-    # Print logs
-    print(f'**{model_class.name}** (p: 0.5, i: 0) => Test Acc.: {test_acc:.4f}')
+    # Test
+    tn_model = tk.models.MPSLayer(tensors=best_cores)
+    tn_model.to(device)
+    tn_model.eval()
+    
+    tn_model.trace(
+        torch.zeros(1, n_features - 1, embed_dim).to(device),
+        inline_input=False,
+        inline_mats=False
+    )
+    
+    logs = test_tn(device=device,
+                    model=tn_model,
+                    embedding=embedding,
+                    criterion=criterion,
+                    test_loader=unused_loader,
+                    logs=logs,
+                    # n_batches=10,
+                    )
+    
+    test_acc = logs['val_accs'][-1]
+    
+    print(f'**{model_class.name}** (p: {0.5}, i: {0}, D: {bond_dim}) => '
+          f'Test Acc.: {test_acc:.4f}')
     
     if test_acc < prev_test_acc:
         print('** Not Improved **')
         
-        model = model_class(bond_dim=bond_dim)
-        model.to(device)
+        best_cores = cores
+        tn_model = tk.models.MPSLayer(tensors=cores)
+        tn_model.to(device)
+        tn_model.eval()
         
-        test_acc = test(device=device,
-                        model=model,
-                        test_loader=unused_loader)
+        tn_model.trace(
+            torch.zeros(1, n_features - 1, embed_dim).to(device),
+            inline_input=False,
+            inline_mats=False
+        )
         
-        # Print logs
-        print(f'**{model_class.name}** (p: 0.5, i: 0) => Test Acc.: {test_acc:.4f}')
-        
-    # Save best model after training
+        logs = test_tn(device=device,
+                        model=tn_model,
+                        embedding=embedding,
+                        criterion=criterion,
+                        test_loader=unused_loader,
+                        logs=logs,
+                        # n_batches=10,
+                        )
+    
+        test_acc = logs['val_accs'][-1]
+    
+        print(f'**{model_class.name}** (p: {0.5}, i: {0}, D: {bond_dim}) => '
+              f'Test Acc.: {test_acc:.4f}')
+    
+    n = n_params(tn_model)
+    
     torch.save(
-        model.state_dict(),
+        tn_model.tensors,
         os.path.join(
-            tn_models_dir,
+            recores_dir,
             f'{bond_dim}_{n_epochs}_{n}_{prev_test_acc:.4f}_{test_acc:.4f}.pt')
     )
 
@@ -393,35 +465,36 @@ if __name__ == '__main__':
               '\t--help, -h\n'
               '\t<model name>\n'
               '\t<bond dim>\n'
-              '\t<n epochs>\n')
+              '\t<n epochs>')
         sys.exit()
       
     # Read options and arguments
     try:
         opts, args = getopt.getopt(argv[1:], 'h', ['help'])
     except getopt.GetoptError:
-        print('Available options are:\n' # TODO: I'm not doing anything with help
+        print('Available options are:\n'
               '\t--help, -h\n')
         sys.exit(2)
 
     model_name = None
     bond_dim = None
     n_epochs = None
-    if len(args) == 1:
-        model_name = args[0]
-    elif len(args) == 3:
+    if len(args) == 3:
         model_name = args[0]
         bond_dim = int(args[1])
         n_epochs = int(args[2])
     else:
-        print('All arguments should be passed')
-        print('\t<model name>\n'
+        print('All arguments have to be passed')
+        print('Available options are:\n'
+              '\t--help, -h\n'
+              '\t<model name>\n'
               '\t<bond dim>\n'
-              '\t<n epochs>\n')
+              '\t<n epochs>')
         sys.exit()
+        
         
     aux_mod = import_file('model', os.path.join(cwd, 'models', f'{model_name}.py'))
     model_class = aux_mod.Model
-    test_and_retrain(model_class=model_class,
-                     bond_dim=bond_dim,
-                     n_epochs=n_epochs)
+    retrain_tn(model_class=model_class,
+               bond_dim=bond_dim,
+               n_epochs=n_epochs)

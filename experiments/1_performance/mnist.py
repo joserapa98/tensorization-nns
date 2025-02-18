@@ -1,18 +1,12 @@
 import os
 import sys
 import getopt
-import json
-from importlib import util
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
 
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-
-import torchvision
-import torchaudio
 
 import tensorkrowch as tk
 from tensorkrowch.decompositions import tt_rss

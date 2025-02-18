@@ -1,8 +1,0 @@
-Guide to reproduce experiments:
-
-0) Use fffc_tiny model trained for '3_compression' to make these experiments
-
-1) Compress each model with compression.py in '3_compression' with
-   different configurations of hyperparameters
-
-2) Copy folder 'cores_fffc_tiny' in '3_compression' to '2_hyperparameters'

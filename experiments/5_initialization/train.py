@@ -5,13 +5,12 @@ Train MPS from tensorized pre-trained fffc_tiny model
 import os
 import sys
 import getopt
-import copy
 import json
 from importlib import util
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import Dataset, DataLoader
 import torchvision
 import torchaudio
 
@@ -21,9 +20,9 @@ from tensorkrowch.decompositions import tt_rss
 torch.set_num_threads(1)
 
 cwd = os.getcwd()
-p_indian_list = [0.005, 0.01, 0.05,
-                 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-                 0.95, 0.99, 0.995]
+p_english_list = [0.005, 0.01, 0.05,
+                  0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                  0.95, 0.99, 0.995]
 out_rate = 1000
 
 
@@ -46,10 +45,10 @@ class CustomCommonVoice(Dataset):
 
     Parameters
     ----------
-    p_indian : float (p_indian_list)
-        Proportion of audios of people with indian accent in the dataset.
+    p_english : float (p_english_list)
+        Proportion of audios of people with english accent in the dataset.
     idx : int [0, 9]
-        Index of the annotations to be used. For each ``p_indian`` there are 10
+        Index of the annotations to be used. For each ``p_english`` there are 10
         datasets.
     set : str
         Indicates which dataset is to be loaded.
@@ -60,21 +59,21 @@ class CustomCommonVoice(Dataset):
     """
     
     def __init__(self,
-                 p_indian,
+                 p_english,
                  idx,
                  set="train_df.tsv",
                  transform=None):
         
-        global p_indian_list
-        if (p_indian not in p_indian_list) or ((idx < 0) or (idx > 9)):
+        global p_english_list
+        if (p_english not in p_english_list) or ((idx < 0) or (idx > 9)):
             raise ValueError(
-                f'`p_indian` can only take values within {p_indian_list}, '
+                f'`p_english` can only take values within {p_english_list}, '
                 f'and `idx` should be between 0 and 9')
         
         global cwd
         self.dataset = torchaudio.datasets.COMMONVOICE(
             root=os.path.join(cwd, 'CommonVoice'),
-            tsv=os.path.join('datasets', str(p_indian), str(idx), set))
+            tsv=os.path.join('datasets', str(p_english), str(idx), set))
         self.transform = transform
 
     def __len__(self):
@@ -125,20 +124,20 @@ def none_collate(batch):
     return torch.utils.data.dataloader.default_collate(batch)
 
 
-def load_data(p_indian, idx, batch_size):
+def load_data(p_english, idx, batch_size):
     """Loads dataset performing the required transformations for train or test."""
     
     # Load datasets
     global transform
-    train_dataset = CustomCommonVoice(p_indian,
+    train_dataset = CustomCommonVoice(p_english,
                                       idx,
                                       set="train_df.tsv",
                                       transform=transform)
-    val_dataset = CustomCommonVoice(p_indian,
+    val_dataset = CustomCommonVoice(p_english,
                                     idx,
                                     set="val_df.tsv",
                                     transform=transform)
-    test_dataset = CustomCommonVoice(p_indian,
+    test_dataset = CustomCommonVoice(p_english,
                                      idx,
                                      set="test_df.tsv",
                                      transform=transform)
@@ -160,16 +159,16 @@ def load_data(p_indian, idx, batch_size):
     return train_loader, val_loader, test_loader
 
 
-def load_sketch_samples(p_indian, idx, batch_size):
+def load_sketch_samples(p_english, idx, batch_size):
     """Loads sketch samples to tensorize models."""
     
     # Load datasets
     global transform
-    test_tensorize_dataset = CustomCommonVoice(p_indian,
+    test_tensorize_dataset = CustomCommonVoice(p_english,
                                                idx,
                                                set="test_df_tensorize.tsv",
                                                transform=transform)
-    test_unused_dataset = CustomCommonVoice(p_indian,
+    test_unused_dataset = CustomCommonVoice(p_english,
                                             idx,
                                             set="test_df_unused.tsv",
                                             transform=transform)
@@ -335,7 +334,7 @@ def train_tn(init_method='rss',
     print(init_method, embedding_fn, renormalize, bond_dim,
           n_epochs, learning_rate, weight_decay)
     
-    global p_indian_list
+    global p_english_list
     
     device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
     

@@ -19,7 +19,7 @@ from tensorkrowch.utils import random_unitary
 torch.set_num_threads(1)
 
 cwd = os.getcwd()
-p_indian_list = [0.005, 0.01, 0.05,
+p_english_list = [0.005, 0.01, 0.05,
                  0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
                  0.95, 0.99, 0.995]
 out_rate = 1000
@@ -44,10 +44,10 @@ class CustomCommonVoice(Dataset):
 
     Parameters
     ----------
-    p_indian : float (p_indian_list)
-        Proportion of audios of people with indian accent in the dataset.
+    p_english : float (p_english_list)
+        Proportion of audios of people with english accent in the dataset.
     idx : int [0, 9]
-        Index of the annotations to be used. For each ``p_indian`` there are 10
+        Index of the annotations to be used. For each ``p_english`` there are 10
         datasets.
     set : str
         Indicates which dataset is to be loaded.
@@ -58,21 +58,21 @@ class CustomCommonVoice(Dataset):
     """
     
     def __init__(self,
-                 p_indian,
+                 p_english,
                  idx,
                  set="train_df.tsv",
                  transform=None):
         
-        global p_indian_list
-        if (p_indian not in p_indian_list) or ((idx < 0) or (idx > 9)):
+        global p_english_list
+        if (p_english not in p_english_list) or ((idx < 0) or (idx > 9)):
             raise ValueError(
-                f'`p_indian` can only take values within {p_indian_list}, '
+                f'`p_english` can only take values within {p_english_list}, '
                 f'and `idx` should be between 0 and 9')
         
         global cwd
         self.dataset = torchaudio.datasets.COMMONVOICE(
             root=os.path.join(cwd, 'CommonVoice'),
-            tsv=os.path.join('datasets', str(p_indian), str(idx), set))
+            tsv=os.path.join('datasets', str(p_english), str(idx), set))
         self.transform = transform
 
     def __len__(self):
@@ -123,20 +123,20 @@ def none_collate(batch):
     return torch.utils.data.dataloader.default_collate(batch)
 
 
-def load_data(p_indian, idx, batch_size):
+def load_data(p_english, idx, batch_size):
     """Loads dataset performing the required transformations for train or test."""
     
     # Load datasets
     global transform
-    train_dataset = CustomCommonVoice(p_indian,
+    train_dataset = CustomCommonVoice(p_english,
                                       idx,
                                       set="train_df.tsv",
                                       transform=transform)
-    val_dataset = CustomCommonVoice(p_indian,
+    val_dataset = CustomCommonVoice(p_english,
                                     idx,
                                     set="val_df.tsv",
                                     transform=transform)
-    test_dataset = CustomCommonVoice(p_indian,
+    test_dataset = CustomCommonVoice(p_english,
                                      idx,
                                      set="test_df.tsv",
                                      transform=transform)
@@ -158,16 +158,16 @@ def load_data(p_indian, idx, batch_size):
     return train_loader, val_loader, test_loader
 
 
-def load_sketch_samples(p_indian, idx, batch_size):
+def load_sketch_samples(p_english, idx, batch_size):
     """Loads sketch samples to tensorize models."""
     
     # Load datasets
     global transform
-    test_tensorize_dataset = CustomCommonVoice(p_indian,
+    test_tensorize_dataset = CustomCommonVoice(p_english,
                                                idx,
                                                set="test_df_tensorize.tsv",
                                                transform=transform)
-    test_unused_dataset = CustomCommonVoice(p_indian,
+    test_unused_dataset = CustomCommonVoice(p_english,
                                             idx,
                                             set="test_df_unused.tsv",
                                             transform=transform)
@@ -286,16 +286,16 @@ def test_tn(device, model, embedding, criterion, test_loader,
 #############
 # MARK: Tensorize
 
-def tensorize_retrain(model_class, n_epochs, p_indian, start_idx, end_idx):
-    """Tensorizes models trained with the given ``p_indian`` and ``idx``."""
-    global p_indian_list
+def tensorize_retrain(model_class, n_epochs, p_english, start_idx, end_idx):
+    """Tensorizes models trained with the given ``p_english`` and ``idx``."""
+    global p_english_list
     
     device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
     
-    if p_indian is not None:
-        p_indian_list_aux = [p_indian]
+    if p_english is not None:
+        p_english_list_aux = [p_english]
     else:
-        p_indian_list_aux = p_indian_list
+        p_english_list_aux = p_english_list
         
     if start_idx is not None:
         idx_range_aux = range(start_idx, end_idx)
@@ -311,29 +311,29 @@ def tensorize_retrain(model_class, n_epochs, p_indian, start_idx, end_idx):
     softmax = nn.Softmax(dim=1)
     criterion = nn.NLLLoss()
         
-    for p_indian in p_indian_list_aux:
+    for p_english in p_english_list_aux:
         for idx in idx_range_aux:
             models_dir = os.path.join(cwd, 'results', '0_train_nns',
-                                      model_class.name, str(p_indian), str(idx))
+                                      model_class.name, str(p_english), str(idx))
             
             sketches_dir = os.path.join(cwd, 'results', '6_privacy',
                                         model_class.name, 'sketches',
-                                        str(p_indian), str(idx))
+                                        str(p_english), str(idx))
             os.makedirs(sketches_dir, exist_ok=True)
             
             cores_dir = os.path.join(cwd, 'results', '6_privacy',
                                      model_class.name, 'cores',
-                                     str(p_indian), str(idx))
+                                     str(p_english), str(idx))
             os.makedirs(cores_dir, exist_ok=True)
             
             recores_dir = os.path.join(cwd, 'results', '6_privacy',
                                        model_class.name, 'recores',
-                                       str(p_indian), str(idx))
+                                       str(p_english), str(idx))
             os.makedirs(recores_dir, exist_ok=True)
             
             priv_recores_dir = os.path.join(cwd, 'results', '6_privacy',
                                             model_class.name, 'priv_recores',
-                                            str(p_indian), str(idx))
+                                            str(p_english), str(idx))
             os.makedirs(priv_recores_dir, exist_ok=True)
             
             n_models = len(os.listdir(models_dir))
@@ -360,7 +360,7 @@ def tensorize_retrain(model_class, n_epochs, p_indian, start_idx, end_idx):
                 # Load data
                 batch_size_loader = 64
                 tensorize_loader, unused_loader = load_sketch_samples(
-                    p_indian, idx, batch_size_loader)
+                    p_english, idx, batch_size_loader)
                 sketch_samples, sketch_labels = next(iter(tensorize_loader))
                 perm = torch.randperm(sketch_samples.size(0))
                 sketch_samples = sketch_samples[perm]
@@ -445,7 +445,7 @@ def tensorize_retrain(model_class, n_epochs, p_indian, start_idx, end_idx):
                                )
                 sketch_acc = logs['val_accs'][-1]
                 
-                print(f'**{model_class.name}** (p: {p_indian}, i: {idx}, '
+                print(f'**{model_class.name}** (p: {p_english}, i: {idx}, '
                       f's: {s}) => '
                       f'Test Acc.: {test_acc:.4f}, '
                       f'Sketch Acc.: {sketch_acc:.4f}')
@@ -486,7 +486,7 @@ def tensorize_retrain(model_class, n_epochs, p_indian, start_idx, end_idx):
                                    n_batches=10,
                                    )
                     
-                    print(f'**{model_class.name}** (p: {p_indian}, i: {idx}, '
+                    print(f'**{model_class.name}** (p: {p_english}, i: {idx}, '
                           f's: {s}) => '
                           f'Epoch: {epoch + 1}/{n_epochs}, '
                           f'Train Loss: {logs["train_losses"][-1]:.3f}, '
@@ -532,7 +532,7 @@ def tensorize_retrain(model_class, n_epochs, p_indian, start_idx, end_idx):
                 
                 sketch_acc = logs['val_accs'][-1]
                 
-                print(f'**{model_class.name}** (p: {p_indian}, i: {idx}, '
+                print(f'**{model_class.name}** (p: {p_english}, i: {idx}, '
                       f's: {s}) => '
                       f'Test Acc.: {test_acc:.4f}, '
                       f'Sketch Acc.: {sketch_acc:.4f}')
@@ -589,7 +589,7 @@ def tensorize_retrain(model_class, n_epochs, p_indian, start_idx, end_idx):
                 
                 sketch_acc = logs['val_accs'][-1]
                 
-                print(f'**{model_class.name}** (p: {p_indian}, i: {idx}, '
+                print(f'**{model_class.name}** (p: {p_english}, i: {idx}, '
                       f's: {s}) => '
                       f'Test Acc.: {test_acc:.4f}, '
                       f'Sketch Acc.: {sketch_acc:.4f}')
@@ -616,7 +616,7 @@ if __name__ == '__main__':
         print('Available options are:\n'
               '\t--help, -h\n'
               '\t<model name>\n'
-              f'\t(optional) proportion of imbalance (p in {p_indian_list})\n'
+              f'\t(optional) proportion of imbalance (p in {p_english_list})\n'
               '\t(optional) index of dataset (0 <= i <= 9)')
         sys.exit()
       
@@ -630,7 +630,7 @@ if __name__ == '__main__':
 
     model_name = None
     n_epochs = None
-    p_indian = None
+    p_english = None
     start_idx = None
     end_idx = None
     if len(args) == 2:
@@ -639,21 +639,21 @@ if __name__ == '__main__':
     elif len(args) == 3:
         model_name = args[0]
         n_epochs = int(args[1])
-        if args[1].isdigit():
+        if args[2].isdigit():
             start_idx = int(args[2])
             end_idx = int(args[2]) + 1
         else:
-            p_indian = float(args[2])
+            p_english = float(args[2])
     elif len(args) == 4:
         model_name = args[0]
         n_epochs = int(args[1])
-        p_indian = float(args[2])
+        p_english = float(args[2])
         start_idx = int(args[3])
         end_idx = int(args[3]) + 1
     elif len(args) == 5:
         model_name = args[0]
         n_epochs = int(args[1])
-        p_indian = float(args[2])
+        p_english = float(args[2])
         start_idx = int(args[3])
         end_idx = int(args[4])
         
@@ -661,6 +661,6 @@ if __name__ == '__main__':
     model_class = aux_mod.Model
     tensorize_retrain(model_class=model_class,
                       n_epochs=n_epochs,
-                      p_indian=p_indian,
+                      p_english=p_english,
                       start_idx=start_idx,
                       end_idx=end_idx)
