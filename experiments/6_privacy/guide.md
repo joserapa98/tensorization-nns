@@ -4,10 +4,10 @@
 1. Tensorize, retrain and obfuscate all ``fffc_tiny`` models trained
    in ``0_train_nns``:
    ```
-   python experiments/6_privacy/tensorize.py <model_name> <n_epochs> <p_english>
+   python experiments/6_privacy/tensorize.py model_name <n_epochs> <p_english>
    ```
 
-   - ``<model_name> = "fffc_tiny"``
+   - ``model_name = "fffc_tiny"``
    - ``n_epochs = 10``
    - ``p_english = 0.005, 0.01, 0.05,  0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 0.995``
 
