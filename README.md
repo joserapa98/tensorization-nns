@@ -2,7 +2,6 @@
 
 **José Ramón Pareja Monturiol, Alejandro Pozas-Kerstjens, David Pérez-García**
 
----
 
 This repository contains all the code used to run the experiments in the paper,
 including the tuning and training of neural network models, tensorizing them,
@@ -14,27 +13,34 @@ is already available in [TensorKrowch](https://github.com/joserapa98/tensorkrowc
 
 ## Requirements
 
-### Tensor Network Models
-* tensorkrowch  
+* python >= 3.8
 
-### Deep Learning Framework (versions specified by TensorKrowch)
-* torch  
+**Tensor network models**
+* tensorkrowch == 1.1.6
+
+Install via:
+```
+pip install tensorkrowch
+```
+
+**Deep learning framework** (versions specified by TensorKrowch)
+* torch
 * torchvision  
 * torchaudio  
 
-### Hyperparameter Tuning
-* ray  
+**Hyperparameter Tuning**
+* ray >= 2.37.0
 
-Install via:  
+Install via:
 ```
 pip install -U "ray[data,train,tune,serve]"
 ```
 
-### Packages for Figures
+**Packages for figures**
 * matplotlib
 * seaborn
 
-To use LaTeX in figure text, make sure $\LaTeX$ is installed on your system.
+To use $\LaTeX$ in figure texts, make sure it is installed on your system.
 
 
 ## Instructions
@@ -65,13 +71,13 @@ of neural networks for improved privacy and interpretability" (2025), arXiv:2501
 
 ```
 @misc{pareja2025tensorization,
-    title={Tensorization of neural networks for improved privacy and interpretability}, 
-    author={Pareja Monturiol, José Ramón and Pozas-Kerstjens, Alejandro and Pérez-García, David},
-    year={2025},
-    eprint={2501.06300},
-    archivePrefix={arXiv},
-    primaryClass={math.NA},
-    url={https://arxiv.org/abs/2501.06300}, 
+      title={Tensorization of neural networks for improved privacy and interpretability}, 
+      author={Pareja Monturiol, José Ramón and Pozas-Kerstjens, Alejandro and Pérez-García, David},
+      year={2025},
+      eprint={2501.06300},
+      archivePrefix={arXiv},
+      primaryClass={math.NA},
+      url={https://arxiv.org/abs/2501.06300}, 
 }
 ```
 

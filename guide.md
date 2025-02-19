@@ -1,9 +1,9 @@
 # Guide to reproduce experiments:
 
 
-1. Download dataset [Common Voice Corpus 16.1](https://commonvoice.mozilla.org/en/datasets),
-   and extract files in folder ``CommonVoice``. In this folder you should place
-   the ``clips`` folder and all the ``.tsv`` files.
+1. Download the [Common Voice Corpus 16.1](https://commonvoice.mozilla.org/en/datasets)
+dataset and extract the files into a folder named ``CommonVoice`` inside the
+parent directory. In this folder, place the ``clips`` folder and all the ``.tsv`` files.
 
 
 2. Create all dataset splits for train / val / test:
