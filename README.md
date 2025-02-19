@@ -20,7 +20,7 @@ is already available in [TensorKrowch](https://github.com/joserapa98/tensorkrowc
 
 Install via:
 ```
-pip install tensorkrowch
+pip install tensorkrowch==1.1.6
 ```
 
 **Deep learning framework** (versions specified by TensorKrowch)
@@ -28,7 +28,7 @@ pip install tensorkrowch
 * torchvision  
 * torchaudio  
 
-**Hyperparameter Tuning**
+**Hyperparameter tuning**
 * ray >= 2.37.0
 
 Install via:
