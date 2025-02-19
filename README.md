@@ -71,13 +71,13 @@ of neural networks for improved privacy and interpretability" (2025), arXiv:2501
 
 ```
 @misc{pareja2025tensorization,
-      title={Tensorization of neural networks for improved privacy and interpretability}, 
-      author={Pareja Monturiol, José Ramón and Pozas-Kerstjens, Alejandro and Pérez-García, David},
-      year={2025},
-      eprint={2501.06300},
-      archivePrefix={arXiv},
-      primaryClass={math.NA},
-      url={https://arxiv.org/abs/2501.06300}, 
+  title={Tensorization of neural networks for improved privacy and interpretability}, 
+  author={Pareja Monturiol, José Ramón and Pozas-Kerstjens, Alejandro and Pérez-García, David},
+  year={2025},
+  eprint={2501.06300},
+  archivePrefix={arXiv},
+  primaryClass={math.NA},
+  url={https://arxiv.org/abs/2501.06300}, 
 }
 ```
 
