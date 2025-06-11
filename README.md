@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/934916039.svg)](https://doi.org/10.5281/zenodo.15639936)
+
 # [Tensorization of neural networks for improved privacy and interpretability](https://arxiv.org/abs/2501.06300)
 
 **José Ramón Pareja Monturiol, Alejandro Pozas-Kerstjens, David Pérez-García**
