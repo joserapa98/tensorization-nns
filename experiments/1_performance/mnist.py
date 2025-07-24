@@ -1,6 +1,7 @@
 import os
 import sys
 import getopt
+import time
 
 import torch
 import torch.nn as nn
@@ -8,17 +9,22 @@ import torch.nn as nn
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
+import tntorch as tn
+
 import tensorkrowch as tk
 from tensorkrowch.decompositions import tt_rss
 
 
 torch.set_num_threads(1)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+dtype = torch.float
+eps = 1e-6  # 1e-15
+
 cwd = os.getcwd()
-eps = 1e-10
 
 
-# Train NN models
-# ===============
+# Tensorize
+# =========
 
 class FFFC(nn.Module):
     
@@ -59,9 +65,6 @@ def check_accuracy(loader, model, device, im_size):
 
 
 def train_model(n_features):
-    # Set device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
     cores_dir = os.path.join(cwd, 'results', '1_performance', 'mnist')
     os.makedirs(cores_dir, exist_ok=True)
 
@@ -132,13 +135,8 @@ def train_model(n_features):
                os.path.join(cores_dir, f'fffc_mnist_{im_size}.pt'))
 
 
-# Tensorize
-# =========
-
 def tt_rss_tensorization(n_features, phys_dim, bond_dim,
                          samples_size, sketch_size, verbose=False):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
     cores_dir = os.path.join(cwd, 'results', '1_performance', 'mnist')
     os.makedirs(cores_dir, exist_ok=True)
     
@@ -193,6 +191,7 @@ def tt_rss_tensorization(n_features, phys_dim, bond_dim,
                              cum_percentage=1-1e-5,
                              batch_size=500,
                              device=device,
+                             dtype=dtype,
                              verbose=verbose,
                              return_info=True)
     
@@ -202,10 +201,10 @@ def tt_rss_tensorization(n_features, phys_dim, bond_dim,
     
     # Relative error
     mps_rss = tk.models.MPSLayer(tensors=[c.to(device) for c in cores_rss])
-    mps_rss.trace(torch.zeros(1, n_features**2, phys_dim, device=device))
+    mps_rss.trace(torch.zeros(1, n_features**2, phys_dim, device=device, dtype=dtype))
     
-    exact_results = fun(samples.to(device))
-    rss_results = mps_rss(embedding(samples.to(device)))
+    exact_results = fun(samples.to(device)).to(dtype)
+    rss_results = mps_rss(embedding(samples.to(device)).to(dtype))
     rel_error = (exact_results - rss_results).norm() / (exact_results.norm() + eps)
     
     if verbose: print(f'--> Relative error: {rel_error:.2e}')
@@ -224,17 +223,131 @@ def tt_rss_tensorization(n_features, phys_dim, bond_dim,
                      f'{rel_error:.2e}_{acc_diff:.2e}.pt'))
 
 
+def tt_cross_tensorization(n_features, phys_dim, bond_dim,
+                           samples_size, verbose=False):
+    cores_dir = os.path.join(cwd, 'results', '1_performance', 'mnist')
+    os.makedirs(cores_dir, exist_ok=True)
+    
+    results_dir = os.path.join(
+        cwd, 'results', '1_performance', 'mnist',
+        f'cross_{n_features}_{phys_dim}_{bond_dim}_{samples_size}')
+    os.makedirs(results_dir, exist_ok=True)
+    
+    cores_file = f'fffc_mnist_{n_features}.pt'
+    if not os.path.exists(os.path.join(cores_dir, cores_file)):
+        train_model(n_features=n_features)
+    
+    model_state_dict = torch.load(os.path.join(cores_dir, cores_file),
+                                  weights_only=False)
+    
+    model = FFFC(n_features)
+    model.load_state_dict(model_state_dict)
+    model.to(device)
+    
+    transform = transforms.Resize(n_features, antialias=True)
+    test_dataset = datasets.MNIST(root=os.path.join(cores_dir, 'data'),
+                                  train=False,
+                                  download=True)
+    
+    samples = transform(test_dataset.data).view(-1, n_features**2) / 255
+    samples = samples[:samples_size]
+    samples[samples == 1.] = 1. - (1 / (2 * phys_dim))
+    
+    softmax = nn.Softmax(dim=1)
+    
+    def fun(input):
+        output = softmax(model(input)).sqrt().to(dtype)
+        return output
+    
+    def embedding(x):
+        x = tk.embeddings.basis((x * phys_dim).int(), dim=phys_dim).float()
+        return x
+    
+    # Add labels
+    n_classes = 10
+    out_position = n_features**2 // 2
+    
+    domain = [torch.arange(phys_dim,
+                           device=device,
+                           dtype=dtype) / phys_dim] * n_features**2
+    domain = domain[:out_position] + [torch.arange(n_classes)] + domain[out_position:]
+    
+    def aux_fun(input):
+        data = torch.cat([input[:, :out_position],
+                          input[:, (out_position + 1):]], dim=1)
+        labs = input[:, out_position:(out_position + 1)].to(torch.int64)
+        output = softmax(model(data)).sqrt().to(dtype)
+        output = output.gather(dim=1, index=labs).flatten()
+        return output
+    
+    if verbose: print('* Starting TT-CI tensorization...')
+    
+    start = time.time()
+    tt_cross, info = tn.cross(function=aux_fun,
+                              domain=domain,
+                              device=device,
+                              function_arg='matrix',
+                              # rmax=bond_dim,
+                              ranks_tt=bond_dim,
+                              max_iter=5,   # 25 by default
+                              eps=1e-15,    # 1e-6 by default
+                              verbose=verbose,
+                              return_info=True)
+    all_time = time.time() - start
+    
+    if verbose:
+        print(f'* Tensorization finished in {info["total_time"]:.2e} seconds')
+        print(f' (Total time {all_time:.2e} seconds) ')
+        print(f'--> Val. error: {info["val_eps"]:.2e}')
+    
+    # Relative error
+    cores_cross = tt_cross.cores
+    cores_cross[0] = cores_cross[0][0]
+    cores_cross[-1] = cores_cross[-1][..., 0]
+    
+    mps_cross = tk.models.MPSLayer(tensors=[c.to(device) for c in cores_cross])
+    mps_cross.trace(torch.zeros(1, n_features**2, phys_dim,
+                                device=device, dtype=dtype))
+    
+    exact_results = fun(samples.to(device)).to(dtype)
+    cross_results = mps_cross(embedding(samples.to(device)).to(dtype))
+    rel_error = (exact_results - cross_results).norm() / (exact_results.norm() + eps)
+    
+    if verbose: print(f'--> Relative error: {rel_error:.2e}')
+    
+    # Accuracy
+    _, exact_preds = torch.max(exact_results, 1)
+    _, cross_preds = torch.max(cross_results, 1)
+    acc_diff = (cross_preds != exact_preds).float().mean().item()
+    
+    if verbose: print(f'--> Diff. of accuracies: {acc_diff:.2e}')
+    
+    torch.save(
+        cores_cross,
+        os.path.join(results_dir,
+                     f'{all_time:.2e}_{info["total_time"]:.2e}_'
+                     f'{rel_error:.2e}_{acc_diff:.2e}.pt'))
+
+
 # Tensorize multiple times
 # ========================
 
 def multiple_tt_rss(n, n_features, phys_dim, bond_dim,
-                    samples_size, sketch_size, verbose=False):
+                    samples_size, sketch_size):
     for _ in range(n):
         tt_rss_tensorization(n_features=n_features,
                              phys_dim=phys_dim,
                              bond_dim=bond_dim,
                              samples_size=samples_size,
                              sketch_size=sketch_size)
+
+
+def multiple_tt_cross(n, n_features, phys_dim, bond_dim, samples_size):
+    for _ in range(n):
+        tt_cross_tensorization(n_features=n_features,
+                               phys_dim=phys_dim,
+                               bond_dim=bond_dim,
+                               samples_size=samples_size)
 
 
 ###############################################################################
@@ -251,76 +364,145 @@ if __name__ == '__main__':
         print('No argumets were passed')
         print('Available options are:\n'
               '\t--help, -h\n'
+              '\t--rss\n'
+              '\t--cross\n'
               '\t--n')
         sys.exit()
       
     # Read options and arguments
     try:
-        opts, args = getopt.getopt(argv[1:], 'h', ['help', 'n'])
+        opts, args = getopt.getopt(argv[1:], 'h', ['help', 'rss', 'cross', 'n'])
     except getopt.GetoptError:
         print('Available options are:\n'
               '\t--help, -h\n'
+              '\t--rss\n'
+              '\t--cross\n'
               '\t--n')
         sys.exit(2)
     
     # Save selected options
-    options = {'n': False}
+    options = {'rss': False,
+               'cross': False,
+               'n': False}
     
     for opt, arg in opts:
         if (opt == '-h') or (opt == '--help'):
             print('Available options are:\n'
                   '\t--help, -h\n'
+                  '\t--rss\n'
+                  '\t--cross\n'
                   '\t--n')
             sys.exit()
+        elif opt == '--rss':
+            options['rss'] = True
+        elif opt == '--cross':
+            options['cross'] = True
         elif opt == '--n':
             options['n'] = True
     
+    # Check if selected options are compatible
+    if options['rss'] and options['cross']:
+        print('Options "rss" and "cross" are incompatible')
+        sys.exit()
+    elif not (options['rss'] or options['cross']):
+        print('One of the options "rss" and "cross" should be chosen')
+        sys.exit()
+    
     # Multiple
     if options['n']:
-        if len(args) < 6:
-            print('In "n" mode the following arguments need '
-                  'to be passed:\n'
-                  '\t1) n\n'
-                  '\t2) n_features\n'
-                  '\t3) phys_dim\n'
-                  '\t4) bond_dim\n'
-                  '\t5) samples_size\n'
-                  '\t6) sketch_size')
-            sys.exit()
-        else:
-            n = int(args[0])
-            n_features = int(args[1])
-            phys_dim = int(args[2])
-            bond_dim = int(args[3])
-            samples_size = int(args[4])
-            sketch_size = int(args[5])
+        # RSS
+        if options['rss']:
+            if len(args) < 6:
+                print('In "n" and "rss" mode the following arguments need '
+                      'to be passed:\n'
+                      '\t1) n\n'
+                      '\t2) n_features\n'
+                      '\t3) phys_dim\n'
+                      '\t4) bond_dim\n'
+                      '\t5) samples_size\n'
+                      '\t6) sketch_size')
+                sys.exit()
+            else:
+                n = int(args[0])
+                n_features = int(args[1])
+                phys_dim = int(args[2])
+                bond_dim = int(args[3])
+                samples_size = int(args[4])
+                sketch_size = int(args[5])
+            
+            multiple_tt_rss(n=n,
+                            n_features=n_features,
+                            phys_dim=phys_dim,
+                            bond_dim=bond_dim,
+                            samples_size=samples_size,
+                            sketch_size=sketch_size)
         
-        multiple_tt_rss(n=n,
-                        n_features=n_features,
-                        phys_dim=phys_dim,
-                        bond_dim=bond_dim,
-                        samples_size=samples_size,
-                        sketch_size=sketch_size)
+        # CROSS
+        if options['cross']:
+            if len(args) < 5:
+                print('In "n" and "cross" mode the following arguments need '
+                      'to be passed:\n'
+                      '\t1) n\n'
+                      '\t2) n_features\n'
+                      '\t3) phys_dim\n'
+                      '\t4) bond_dim\n'
+                      '\t5) samples_size')
+                sys.exit()
+            else:
+                n = int(args[0])
+                n_features = int(args[1])
+                phys_dim = int(args[2])
+                bond_dim = int(args[3])
+                samples_size = int(args[4])
+            
+            multiple_tt_cross(n=n,
+                              n_features=n_features,
+                              phys_dim=phys_dim,
+                              bond_dim=bond_dim,
+                              samples_size=samples_size)
     
     else:
-        if len(args) < 5:
-            print('The following arguments need to be passed:\n'
-                  '\t1) n_features\n'
-                  '\t2) phys_dim\n'
-                  '\t3) bond_dim\n'
-                  '\t4) samples_size\n'
-                  '\t5) sketch_size')
-            sys.exit()
-        else:
-            n_features = int(args[0])
-            phys_dim = int(args[1])
-            bond_dim = int(args[2])
-            samples_size = int(args[3])
-            sketch_size = int(args[4])
-        
-        tt_rss_tensorization(n_features=n_features,
-                             phys_dim=phys_dim,
-                             bond_dim=bond_dim,
-                             samples_size=samples_size,
-                             sketch_size=sketch_size,
-                             verbose=True)
+        # RSS
+        if options['rss']:
+            if len(args) < 5:
+                print('In "rss" mode the following arguments need to be passed:\n'
+                      '\t1) n_features\n'
+                      '\t2) phys_dim\n'
+                      '\t3) bond_dim\n'
+                      '\t4) samples_size\n'
+                      '\t5) sketch_size')
+                sys.exit()
+            else:
+                n_features = int(args[0])
+                phys_dim = int(args[1])
+                bond_dim = int(args[2])
+                samples_size = int(args[3])
+                sketch_size = int(args[4])
+            
+            tt_rss_tensorization(n_features=n_features,
+                                 phys_dim=phys_dim,
+                                 bond_dim=bond_dim,
+                                 samples_size=samples_size,
+                                 sketch_size=sketch_size,
+                                 verbose=True)
+
+        # CROSS
+        if options['cross']:
+            if len(args) < 4:
+                print('In "cross" mode the following arguments need to be passed:\n'
+                      '\t1) n_features\n'
+                      '\t2) phys_dim\n'
+                      '\t3) bond_dim\n'
+                      '\t4) samples_size')
+                sys.exit()
+            else:
+                n_features = int(args[0])
+                phys_dim = int(args[1])
+                bond_dim = int(args[2])
+                samples_size = int(args[3])
+            
+            tt_cross_tensorization(n_features=n_features,
+                                   phys_dim=phys_dim,
+                                   bond_dim=bond_dim,
+                                   samples_size=samples_size,
+                                   verbose=True)

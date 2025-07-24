@@ -11,16 +11,18 @@ from tensorkrowch.decompositions import tt_rss
 
 
 torch.set_num_threads(1)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+dtype = torch.float64
+cdtype = torch.complex128
+eps = 1e-15
+
 cwd = os.getcwd()
-eps = 1e-10
 
 
 # Tensorize
 # =========
 
 def order_parameter(cores):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
     mps = tk.models.MPS(tensors=cores)
     mps.parameterize(set_param=False, override=True)
     
@@ -30,7 +32,7 @@ def order_parameter(cores):
                            [0, sqrt(1 / 3)]])
     A_minus = torch.tensor([[0, 0],
                             [-sqrt(2 / 3), 0]])
-    aklt_core = torch.stack([A_plus, A_zero, A_minus], dim=1).to(torch.complex64)
+    aklt_core = torch.stack([A_plus, A_zero, A_minus], dim=1).to(cdtype)
     bond_dim = aklt_core.shape[0]
     
     sigma_x = torch.tensor([[0, sqrt(1 / 3)],
@@ -39,10 +41,10 @@ def order_parameter(cores):
                             [sqrt(1 / 3)*1j, 0]])
     sigma_z = torch.tensor([[sqrt(1 / 3), 0],
                             [0, -sqrt(1 / 3)]])
-    aklt_core_pauli = torch.stack([sigma_x, sigma_y, sigma_z], dim=1)
+    aklt_core_pauli = torch.stack([sigma_x, sigma_y, sigma_z], dim=1).to(cdtype)
     
     U = torch.linalg.lstsq(
-        aklt_core.permute(0, 2, 1).reshape(4, 3).to(aklt_core_pauli.dtype),
+        aklt_core.permute(0, 2, 1).reshape(4, 3),
         aklt_core_pauli.permute(0, 2, 1).reshape(4, 3)).solution
     
     
@@ -53,10 +55,10 @@ def order_parameter(cores):
 
     ux = torch.Tensor([[1, 0, 0],
                        [0, -1, 0],
-                       [0, 0, -1]]).to(torch.complex64)
+                       [0, 0, -1]]).to(cdtype)
     uz = torch.Tensor([[-1, 0, 0],
                        [0, -1, 0],
-                       [0, 0, 1]]).to(torch.complex64)
+                       [0, 0, 1]]).to(cdtype)
 
     ux = (U @ ux @ U.H).to(device)
     uz = (U @ uz @ U.H).to(device)
@@ -153,8 +155,6 @@ def order_parameter(cores):
 
 
 def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
     results_dir = os.path.join(cwd, 'results', '4_interpretability', 'aklt')
     os.makedirs(results_dir, exist_ok=True)
     
@@ -177,7 +177,7 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
     bond_dim = aklt_core.shape[0]
     
     boundary_conditions = [0, 0]
-    aklt_cores = [aklt_core.to(device) for _ in range(n_features)]
+    aklt_cores = [aklt_core.to(device, dtype=dtype) for _ in range(n_features)]
     aklt_cores[0] = aklt_cores[0][boundary_conditions[0], :, :]
     aklt_cores[-1] = aklt_cores[-1][:, :, boundary_conditions[1]]
     
@@ -185,7 +185,7 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
     samples_file = f'samples_{n_features}_{samples_size}.pt'
     if not os.path.exists(os.path.join(results_dir, samples_file)):
         def aux_embedding(x):
-            return tk.embeddings.basis(x, dim=phys_dim).float()
+            return tk.embeddings.basis(x, dim=phys_dim).to(dtype)
         
         mps = tk.models.MPS(tensors=aklt_cores)
         mps.parameterize(set_param=False, override=True)
@@ -224,7 +224,7 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
             
             if i > 0:
                 samples = torch.cat([samples,
-                                    new_samples.cpu().int().reshape(-1, 1)], dim=1)
+                                     new_samples.cpu().int().reshape(-1, 1)], dim=1)
             else:
                 samples = new_samples.cpu().int().reshape(-1, 1)
 
@@ -233,7 +233,7 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
         
         mps.unset_data_nodes()
         mps.reset()
-        mps.trace(torch.zeros(1, n_features, phys_dim, device=device))
+        mps.trace(torch.zeros(1, n_features, phys_dim, device=device, dtype=dtype))
     
     samples = torch.load(os.path.join(results_dir, samples_file),
                          weights_only=False)
@@ -247,7 +247,7 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
     
     # Estimate scale
     mps.set_data_nodes()
-    mps.add_data(embedding(samples.to(device)))
+    mps.add_data(embedding(samples.to(device)).to(dtype))
     
     log_scale = 0
     
@@ -273,9 +273,9 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
     
     mps = tk.models.MPS(tensors=aklt_cores)
     mps.parameterize(set_param=False, override=True)
-    mps.trace(torch.zeros(1, n_features, phys_dim, device=device))
+    mps.trace(torch.zeros(1, n_features, phys_dim, device=device, dtype=dtype))
     
-    def fun(x): return mps(embedding(x)).unsqueeze(-1)
+    def fun(x): return mps(embedding(x).to(dtype)).unsqueeze(-1)
     
     domain = torch.arange(phys_dim).float() / phys_dim
     
@@ -291,6 +291,7 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
                              cum_percentage=1-1e-5,
                              batch_size=500,
                              device=device,
+                             dtype=dtype,
                              verbose=verbose,
                              return_info=True)
     
@@ -302,10 +303,10 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
     # Relative error
     mps_rss = tk.models.MPS(tensors=[c.to(device) for c in cores_rss])
     mps_rss.parameterize(set_param=False, override=True)
-    mps_rss.trace(torch.zeros(1, n_features, phys_dim, device=device))
+    mps_rss.trace(torch.zeros(1, n_features, phys_dim, device=device, dtype=dtype))
     
-    exact_results = mps(embedding(samples.to(device)))
-    rss_results = mps_rss(embedding(samples.to(device)))
+    exact_results = mps(embedding(samples.to(device)).to(dtype))
+    rss_results = mps_rss(embedding(samples.to(device)).to(dtype))
     rel_error = (exact_results - rss_results).norm() / (exact_results.norm() + eps)
     
     if verbose: print(f'--> Relative error: {rel_error:.2e}')
@@ -352,11 +353,11 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
     
     
     # Order parameter
-    aklt_cores = [aklt_core.to(torch.complex64) / scale
+    aklt_cores = [aklt_core.to(cdtype) / scale
                   for aklt_core in aklt_cores]
     op = order_parameter(aklt_cores)
     
-    mps_rss = tk.models.MPS(tensors=[c.to(torch.complex64).to(device)
+    mps_rss = tk.models.MPS(tensors=[c.to(cdtype).to(device)
                                      for c in cores_rss])
     mps_rss.canonicalize(oc=0, renormalize=True)
     
@@ -388,7 +389,7 @@ def tt_rss_tensorization(n_features, samples_size, sketch_size, verbose=False):
 # Tensorize multiple times
 # ========================
 
-def multiple_tt_rss(n, n_features, samples_size, sketch_size, verbose=False):
+def multiple_tt_rss(n, n_features, samples_size, sketch_size):
     for _ in range(n):
         tt_rss_tensorization(n_features=n_features,
                              samples_size=samples_size,
